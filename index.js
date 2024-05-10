@@ -2,6 +2,8 @@
 
 const line = require('@line/bot-sdk');
 const express = require('express');
+const fs = require('fs');
+const _ = require('lodash');
 require('dotenv').config();
 
 const lineHttpClientConfig = {
@@ -13,6 +15,12 @@ const lineHttpClientConfig = {
 const client = new line.messagingApi.MessagingApiClient(lineHttpClientConfig);
 
 const app = express();
+
+app.get('/get-history', (req, res) => {
+  const data = getDataFromJson();
+  res.header('Content-Type', 'application/json');
+  res.send(JSON.stringify(data));
+});
 
 // webhook callback
 app.post('/webhook', line.middleware(lineHttpClientConfig), (req, res) => {
@@ -53,10 +61,9 @@ function handleEvent(event) {
   switch (event.type) {
     case 'message':
       const message = event.message;
-      console.log(message);
       switch (message.type) {
         case 'text':
-          return handleText(message, event.replyToken);
+          return handleText(message, event.replyToken, event.source.userId);
         case 'image':
           return handleImage(message, event.replyToken);
         case 'video':
@@ -101,8 +108,129 @@ function handleEvent(event) {
   }
 }
 
-function handleText(message, replyToken) {
-  return replyText(replyToken, message.text, message.quoteToken);
+function getDataFromJson() {
+  if (!fs.existsSync('./data.json')) return [];
+  const data = fs.readFileSync('./data.json', 'utf8');
+  const getArrayData = JSON.parse(data);
+  return _.orderBy(getArrayData, ['km'], ['desc']);
+}
+
+function saveToFile(price, km) {
+  const savedData = { price: +price, km: +km, createAt: new Date() };
+  const response = { status: true };
+  if (!fs.existsSync('./data.json')) {
+    fs.writeFileSync('./data.json', JSON.stringify([savedData]));
+    return response;
+  }
+  const data = fs.readFileSync('./data.json', 'utf8');
+  const getArrayData = JSON.parse(data);
+  const lastData = getArrayData[getArrayData.length - 1];
+
+  if (!lastData || !lastData.length) {
+    fs.writeFileSync('./data.json', JSON.stringify([savedData]));
+    return response;
+  }
+
+  response.lastKm = lastData.km;
+  if (lastData.km >= km) {
+    response.status = false;
+    return response;
+  }
+  response.totalKm = km - lastData.km;
+  response.cost = response.totalKm / price;
+  const newData = [...getArrayData, savedData];
+  fs.writeFileSync('./data.json', JSON.stringify(newData));
+  return response;
+}
+
+function removeInFile(km) {
+  const response = { status: true };
+  if (!fs.existsSync('./data.json')) {
+    return response;
+  }
+  const data = fs.readFileSync('./data.json', 'utf8');
+  const getArrayData = JSON.parse(data);
+  if (!getArrayData.find((el) => el.km === +km)) {
+    response.status = false;
+    return response;
+  }
+  const newData = getArrayData.filter((el) => el.km !== +km);
+  fs.writeFileSync('./data.json', JSON.stringify(newData));
+  return response;
+}
+
+function handleText(message, replyToken, userId) {
+  // console.log(message.text);
+  if (!message.text.includes('save') && !message.text.includes('cancel'))
+    return replyText(replyToken, 'ไม่สามารถทำรายการนี้ได้', message.quoteToken);
+
+  if (message.text.includes('save'))
+    return saveFunction(message, replyToken, userId);
+
+  if (message.text.includes('cancel'))
+    return cancelSave(message, replyToken, userId);
+}
+
+function saveFunction(message, replyToken, userId) {
+  const [save, price, km] = message.text.split(' ');
+  if (!price || !km)
+    return replyText(replyToken, 'ไม่สามารถทำรายการนี้ได้', message.quoteToken);
+
+  const response = saveToFile(price, km);
+  if (!response.status)
+    return replyText(
+      replyToken,
+      `ไม่สามารถทำรายการนี้ได้ กิโลเมตรที่แล้วคือ ${response.lastKm}`,
+      message.quoteToken
+    );
+
+  if (!response?.cost)
+    return client.pushMessage({
+      to: userId,
+      messages: [
+        {
+          type: 'text',
+          text: 'บันทึกค่าชาร์จครั้งแรกสำเร็จ',
+          quoteToken: message.quoteToken,
+        },
+      ],
+    });
+
+  return client.pushMessage({
+    to: userId,
+    messages: [
+      {
+        type: 'text',
+        text: `บันทึกค่าชาร์จสำเร็จ ใช้งานไปทั้งหมด ${response.totalKm} กิโลเมตร คิดเป็นกิโลเมครละ ${response.cost} บาท`,
+        quoteToken: message.quoteToken,
+      },
+    ],
+  });
+}
+
+function cancelSave(message, replyToken, userId) {
+  const [cancel, km] = message.text.split(' ');
+  if (!km)
+    return replyText(replyToken, 'ไม่สามารถทำรายการนี้ได้', message.quoteToken);
+
+  const response = removeInFile(km);
+  if (!response.status)
+    return replyText(
+      replyToken,
+      `ไม่สามารถทำรายการนี้ได้ ไม่พบกิโลเมตรที่ยกเลิก`,
+      message.quoteToken
+    );
+
+  return client.pushMessage({
+    to: userId,
+    messages: [
+      {
+        type: 'text',
+        text: `ยกเลิกบันทึกค่าชาร์จกิโลเมตรที่ ${km} สำเร็จ`,
+        quoteToken: message.quoteToken,
+      },
+    ],
+  });
 }
 
 function handleImage(message, replyToken) {
