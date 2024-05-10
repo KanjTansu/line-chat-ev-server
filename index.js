@@ -2,24 +2,31 @@
 
 const line = require('@line/bot-sdk');
 const express = require('express');
-const config = require('./config.json');
+require('dotenv').config();
+
+const lineHttpClientConfig = {
+  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.CHANNEL_SECRET,
+};
 
 // create LINE SDK client
-const client = new line.messagingApi.MessagingApiClient(config);
+const client = new line.messagingApi.MessagingApiClient(lineHttpClientConfig);
 
 const app = express();
 
 // webhook callback
-app.post('/webhook', line.middleware(config), (req, res) => {
+app.post('/webhook', line.middleware(lineHttpClientConfig), (req, res) => {
   // req.body.events should be an array of events
   if (!Array.isArray(req.body.events)) {
     return res.status(500).end();
   }
   // handle events separately
-  Promise.all(req.body.events.map(event => {
-    console.log('event', event);
-    return handleEvent(event);
-  }))
+  Promise.all(
+    req.body.events.map((event) => {
+      console.log('event', event);
+      return handleEvent(event);
+    })
+  )
     .then(() => res.end())
     .catch((err) => {
       console.error(err);
@@ -31,11 +38,13 @@ app.post('/webhook', line.middleware(config), (req, res) => {
 const replyText = (replyToken, text, quoteToken) => {
   return client.replyMessage({
     replyToken,
-    messages: [{
-      type: 'text',
-      text,
-      quoteToken
-    }]
+    messages: [
+      {
+        type: 'text',
+        text,
+        quoteToken,
+      },
+    ],
   });
 };
 
@@ -78,8 +87,13 @@ function handleEvent(event) {
       return replyText(event.replyToken, `Got postback: ${data}`);
 
     case 'beacon':
-      const dm = `${Buffer.from(event.beacon.dm || '', 'hex').toString('utf8')}`;
-      return replyText(event.replyToken, `${event.beacon.type} beacon hwid : ${event.beacon.hwid} with device message = ${dm}`);
+      const dm = `${Buffer.from(event.beacon.dm || '', 'hex').toString(
+        'utf8'
+      )}`;
+      return replyText(
+        event.replyToken,
+        `${event.beacon.type} beacon hwid : ${event.beacon.hwid} with device message = ${dm}`
+      );
 
     default:
       throw new Error(`Unknown event: ${JSON.stringify(event)}`);
@@ -110,7 +124,7 @@ function handleSticker(message, replyToken) {
   return replyText(replyToken, 'Got Sticker');
 }
 
-const port = config.port;
+const port = process.env.PORT;
 app.listen(port, () => {
   console.log(`listening on ${port}`);
 });

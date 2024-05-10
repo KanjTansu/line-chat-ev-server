@@ -12,18 +12,11 @@
     "bot",
     "messaging-api"
   ],
-  "author": "Sitthi Thiammekha",
+  "author": "kanj tansu",
   "license": "ISC",
-  "devDependencies": {
-    "eslint": "^5.16.0",
-    "eslint-config-standard": "^12.0.0",
-    "eslint-plugin-import": "^2.29.1",
-    "eslint-plugin-node": "^7.0.1",
-    "eslint-plugin-promise": "^4.3.1",
-    "eslint-plugin-standard": "^4.1.0"
-  },
   "dependencies": {
-    "@line/bot-sdk": "^8.2.0",
-    "express": "^4.18.2"
+    "@line/bot-sdk": "^9.2.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
   }
 }
