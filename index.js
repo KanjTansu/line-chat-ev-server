@@ -161,13 +161,16 @@ function removeInFile(km) {
 
 function handleText(message, replyToken, userId) {
   // console.log(message.text);
-  if (!message.text.includes('save') && !message.text.includes('cancel'))
+  if (
+    !message.text.toLowerCase().includes('save') &&
+    !message.text.toLowerCase().includes('cancel')
+  )
     return replyText(replyToken, 'ไม่สามารถทำรายการนี้ได้', message.quoteToken);
 
-  if (message.text.includes('save'))
+  if (message.text.toLowerCase().includes('save'))
     return saveFunction(message, replyToken, userId);
 
-  if (message.text.includes('cancel'))
+  if (message.text.toLowerCase().includes('cancel'))
     return cancelSave(message, replyToken, userId);
 }
 
