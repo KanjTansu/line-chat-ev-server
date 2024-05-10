@@ -53,6 +53,7 @@ function handleEvent(event) {
   switch (event.type) {
     case 'message':
       const message = event.message;
+      console.log(message);
       switch (message.type) {
         case 'text':
           return handleText(message, event.replyToken);
