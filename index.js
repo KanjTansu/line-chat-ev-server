@@ -136,7 +136,7 @@ function saveToFile(price, km) {
     return response;
   }
   response.totalKm = km - lastData.km;
-  response.cost = response.totalKm / price;
+  response.cost = price / response.totalKm;
   const newData = [...getArrayData, savedData];
   fs.writeFileSync('./data.json', JSON.stringify(newData));
   return response;
