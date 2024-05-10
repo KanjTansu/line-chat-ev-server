@@ -31,7 +31,6 @@ app.post('/webhook', line.middleware(lineHttpClientConfig), (req, res) => {
   // handle events separately
   Promise.all(
     req.body.events.map((event) => {
-      console.log('event', event);
       return handleEvent(event);
     })
   )
@@ -126,7 +125,7 @@ function saveToFile(price, km) {
   const getArrayData = JSON.parse(data);
   const lastData = getArrayData[getArrayData.length - 1];
 
-  if (!lastData || !lastData.length) {
+  if (!getArrayData.length) {
     fs.writeFileSync('./data.json', JSON.stringify([savedData]));
     return response;
   }
@@ -160,18 +159,22 @@ function removeInFile(km) {
 }
 
 function handleText(message, replyToken, userId) {
-  // console.log(message.text);
+  const lowerCaseMessage = message.text.toLowerCase();
   if (
-    !message.text.toLowerCase().includes('save') &&
-    !message.text.toLowerCase().includes('cancel')
+    !lowerCaseMessage.includes('save') &&
+    !lowerCaseMessage.includes('cancel') &&
+    !lowerCaseMessage.includes('history')
   )
     return replyText(replyToken, 'ไม่สามารถทำรายการนี้ได้', message.quoteToken);
 
-  if (message.text.toLowerCase().includes('save'))
+  if (lowerCaseMessage.includes('save'))
     return saveFunction(message, replyToken, userId);
 
-  if (message.text.toLowerCase().includes('cancel'))
+  if (lowerCaseMessage.includes('cancel'))
     return cancelSave(message, replyToken, userId);
+
+  if (lowerCaseMessage.includes('history'))
+    return getHistory(message, replyToken, userId);
 }
 
 function saveFunction(message, replyToken, userId) {
@@ -230,6 +233,22 @@ function cancelSave(message, replyToken, userId) {
       {
         type: 'text',
         text: `ยกเลิกบันทึกค่าชาร์จกิโลเมตรที่ ${km} สำเร็จ`,
+        quoteToken: message.quoteToken,
+      },
+    ],
+  });
+}
+function getHistory(message, replyToken, userId) {
+  const data = getDataFromJson();
+  const textArray = data
+    .map((el) => `กิโลเมตรที่ ${el.km} เติมไปที่ราคา ${el.price} บาท`)
+    .join('\n');
+  return client.pushMessage({
+    to: userId,
+    messages: [
+      {
+        type: 'text',
+        text: textArray,
         quoteToken: message.quoteToken,
       },
     ],
