@@ -1,23 +1,31 @@
 'use strict';
 
-const line = require('@line/bot-sdk');
 const express = require('express');
 const fs = require('fs');
 const _ = require('lodash');
 require('dotenv').config();
-
+const line = require('@line/bot-sdk');
 const lineHttpClientConfig = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.CHANNEL_SECRET,
 };
-
 // create LINE SDK client
 const client = new line.messagingApi.MessagingApiClient(lineHttpClientConfig);
 
+// Connect Mongo
+const mongoose = require('mongoose');
+const mongoAuthentication = {
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+};
+const mongoUri = `mongodb+srv://${mongoAuthentication.user}:${mongoAuthentication.password}@evchargerproject.grs7qfu.mongodb.net/ev-charger?retryWrites=true&w=majority&appName=EVChargerProject`;
+const Distance = require('./model');
+mongoose.connect(mongoUri);
+
 const app = express();
 
-app.get('/get-history', (req, res) => {
-  const data = getDataFromJson();
+app.get('/get-history', async (req, res) => {
+  const data = await Distance.find({}, {}, { sort: { createdAt: -1 } });
   res.header('Content-Type', 'application/json');
   res.send(JSON.stringify(data));
 });
@@ -30,8 +38,8 @@ app.post('/webhook', line.middleware(lineHttpClientConfig), (req, res) => {
   }
   // handle events separately
   Promise.all(
-    req.body.events.map((event) => {
-      return handleEvent(event);
+    req.body.events.map(async (event) => {
+      return await handleEvent(event);
     })
   )
     .then(() => res.end())
@@ -56,13 +64,17 @@ const replyText = (replyToken, text, quoteToken) => {
 };
 
 // callback function to handle a single event
-function handleEvent(event) {
+async function handleEvent(event) {
   switch (event.type) {
     case 'message':
       const message = event.message;
       switch (message.type) {
         case 'text':
-          return handleText(message, event.replyToken, event.source.userId);
+          return await handleText(
+            message,
+            event.replyToken,
+            event.source.userId
+          );
         case 'image':
           return handleImage(message, event.replyToken);
         case 'video':
@@ -107,26 +119,19 @@ function handleEvent(event) {
   }
 }
 
-function getDataFromJson() {
-  if (!fs.existsSync('./data.json')) return [];
-  const data = fs.readFileSync('./data.json', 'utf8');
-  const getArrayData = JSON.parse(data);
-  return _.orderBy(getArrayData, ['km'], ['desc']);
-}
-
-function saveToFile(price, km) {
-  const savedData = { price: +price, km: +km, createAt: new Date() };
+async function saveToFile(price, km) {
+  const savedData = new Distance({
+    price: +price,
+    km: +km,
+    createAt: new Date(),
+  });
   const response = { status: true };
-  if (!fs.existsSync('./data.json')) {
-    fs.writeFileSync('./data.json', JSON.stringify([savedData]));
-    return response;
-  }
-  const data = fs.readFileSync('./data.json', 'utf8');
-  const getArrayData = JSON.parse(data);
-  const lastData = getArrayData[getArrayData.length - 1];
+  const lastData = await Distance.findOne({}, {}, { sort: { createdAt: -1 } });
+  console.log('lastData', lastData);
+  console.log('savedData', savedData);
 
-  if (!getArrayData.length) {
-    fs.writeFileSync('./data.json', JSON.stringify([savedData]));
+  if (!lastData) {
+    await Distance.create(savedData);
     return response;
   }
 
@@ -135,30 +140,26 @@ function saveToFile(price, km) {
     response.status = false;
     return response;
   }
+
+  await Distance.create(savedData);
   response.totalKm = km - lastData.km;
   response.cost = price / response.totalKm;
-  const newData = [...getArrayData, savedData];
-  fs.writeFileSync('./data.json', JSON.stringify(newData));
   return response;
 }
 
-function removeInFile(km) {
+async function removeInFile(km) {
   const response = { status: true };
-  if (!fs.existsSync('./data.json')) {
+  try {
+    await Distance.findOneAndDelete({ km });
     return response;
-  }
-  const data = fs.readFileSync('./data.json', 'utf8');
-  const getArrayData = JSON.parse(data);
-  if (!getArrayData.find((el) => el.km === +km)) {
+  } catch (error) {
+    console.log(error);
     response.status = false;
     return response;
   }
-  const newData = getArrayData.filter((el) => el.km !== +km);
-  fs.writeFileSync('./data.json', JSON.stringify(newData));
-  return response;
 }
 
-function handleText(message, replyToken, userId) {
+async function handleText(message, replyToken, userId) {
   const lowerCaseMessage = message.text.toLowerCase();
   if (
     !lowerCaseMessage.includes('save') &&
@@ -168,21 +169,21 @@ function handleText(message, replyToken, userId) {
     return replyText(replyToken, 'ไม่สามารถทำรายการนี้ได้', message.quoteToken);
 
   if (lowerCaseMessage.includes('save'))
-    return saveFunction(message, replyToken, userId);
+    return await saveFunction(message, replyToken, userId);
 
   if (lowerCaseMessage.includes('cancel'))
-    return cancelSave(message, replyToken, userId);
+    return await cancelSave(message, replyToken, userId);
 
   if (lowerCaseMessage.includes('history'))
-    return getHistory(message, replyToken, userId);
+    return await getHistory(message, replyToken, userId);
 }
 
-function saveFunction(message, replyToken, userId) {
+async function saveFunction(message, replyToken, userId) {
   const [save, price, km] = message.text.split(' ');
   if (!price || !km)
     return replyText(replyToken, 'ไม่สามารถทำรายการนี้ได้', message.quoteToken);
 
-  const response = saveToFile(price, km);
+  const response = await saveToFile(price, km);
   if (!response.status)
     return replyText(
       replyToken,
@@ -214,12 +215,12 @@ function saveFunction(message, replyToken, userId) {
   });
 }
 
-function cancelSave(message, replyToken, userId) {
+async function cancelSave(message, replyToken, userId) {
   const [cancel, km] = message.text.split(' ');
   if (!km)
     return replyText(replyToken, 'ไม่สามารถทำรายการนี้ได้', message.quoteToken);
 
-  const response = removeInFile(km);
+  const response = await removeInFile(km);
   if (!response.status)
     return replyText(
       replyToken,
@@ -238,17 +239,18 @@ function cancelSave(message, replyToken, userId) {
     ],
   });
 }
-function getHistory(message, replyToken, userId) {
-  const data = getDataFromJson();
+async function getHistory(message, replyToken, userId) {
+  const data = await Distance.find();
   const textArray = data
     .map((el) => `กิโลเมตรที่ ${el.km} เติมไปที่ราคา ${el.price} บาท`)
     .join('\n');
+
   return client.pushMessage({
     to: userId,
     messages: [
       {
         type: 'text',
-        text: textArray,
+        text: textArray || 'ไม่พบข้อมูลในระบบ',
         quoteToken: message.quoteToken,
       },
     ],
@@ -276,6 +278,6 @@ function handleSticker(message, replyToken) {
 }
 
 const port = process.env.PORT;
-app.listen(port, () => {
+app.listen(port, async () => {
   console.log(`listening on ${port}`);
 });
